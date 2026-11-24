@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Space Waves (standalone)</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#13141E" />
+  <style>
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #13141E; overflow: hidden; }
+    #wrap { position: relative; width: 100%; height: 100%; }
+    canvas { width: 100%; height: 100%; display: block; outline: none; }
+    #loader { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center;
+              color: #F9FAFF; font-family: Arial, Helvetica, sans-serif; font-size: 14px; gap: 18px;
+              background: linear-gradient(180deg, #090C15 0%, #16143C 50%, #452A65 100%); z-index: 2; }
+    #bar { width: 40%; height: 6px; background: #2a2b3d; border-radius: 3px; overflow: hidden; }
+    #fill { width: 0%; height: 100%; background: #6842ff; transition: width .2s; }
+    #fsbtn { position: absolute; top: 12px; right: 12px; z-index: 3; padding: 6px 14px; border: none; border-radius: 6px;
+             background: #6842ff; color: #fff; font: 700 13px Arial; cursor: pointer; opacity: .85; }
+    #fsbtn:hover { opacity: 1; }
+    #err { color: #ff8080; white-space: pre-wrap; max-width: 80%; text-align: center; }
+    #swbadge { color: #9dffc4; font-size: 13px; min-height: 16px; }
+    /* never show the SDK's local-mode fake ad overlay, whatever happens */
+    #local-overlay { display: none !important; }
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="canvas" tabindex="0"></canvas>
+    <button id="fsbtn" title="Fullscreen">Fullscreen</button>
+    <div id="loader">
+      <div>Space Waves — standalone</div>
+      <div id="bar"><div id="fill"></div></div>
+      <div id="pct">Downloading… 0%</div>
+      <div id="swbadge"></div>
+      <div id="err"></div>
+    </div>
+  </div>
+
+  <script>
+    // ---- Minimal CrazyGames SDK stub so the game does not crash outside the gameframe ----
+    (function () {
+      const noop = function () { return Promise.resolve(); };
+      window.Crazygames = window.Crazygames || {
+        load: noop,
+        sdk: {},
+        game: { loadingStart: noop, loadingStop: noop, happytime: noop, sdkGameLoadingStart: noop, sdkGameLoadingStop: noop },
+        ad: { requestAd: noop, adFinished: noop, adError: noop, adStarted: noop },
+        banner: noop,
+        inviteLink: noop,
+        user: { getUser: function () { return Promise.reject(new Error('offline')); }, showLoginPrompt: noop },
+        data: { clear: noop, set: noop, setItem: noop, getItem: noop, removeItem: noop, getXp: noop, addXp: noop },
+        features: { get: function () { return Promise.resolve(null); }, getSafe: function () { return Promise.resolve(null); } }
+      };
+      // Many SDK builds look for these too
+      window.Crazygames.SDK = window.Crazygames.sdk;
+    })();
+
+    // ---- Unity loader ----
+    var script = document.createElement('script');
+    script.src = 'Build/loader.js';
+    script.onload = function () {
+      createUnityInstance(document.getElementById('canvas'), {
+        dataUrl: 'Build/data.unityweb',
+        codeUrl: 'Build/wasm.wasm',
+        frameworkUrl: 'Build/framework.js',
+        streamingAssetsUrl: 'StreamingAssets',
+        matchWebGLToCanvasSize: true
+      }, function (progress) {
+        var p = Math.round(progress * 100);
+        document.getElementById('fill').style.width = p + '%';
+        document.getElementById('pct').textContent = 'Downloading… ' + p + '%';
+      }).then(function (instance) {
+        var l = document.getElementById('loader');
+        if (l) l.remove();
+        document.getElementById('canvas').focus();
+      }).catch(function (e) {
+        document.getElementById('pct').textContent = '';
+        document.getElementById('err').textContent = 'Failed to start: ' + (e && e.message ? e.message : e);
+      });
+    };
+    document.head.appendChild(script);
+
+    // ---- Offline cache (service worker) ----
+    var badge = document.getElementById('swbadge');
+    function setBadge(t) { if (badge) badge.textContent = t; }
+    if ('serviceWorker' in navigator) {
+      // when a new service worker takes over (e.g. after updating these files),
+      // reload once automatically so the user never sees a stale page
+      var __reloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (__reloaded) return;
+        __reloaded = true;
+        if (navigator.serviceWorker.controller) location.reload();
+      });
+      navigator.serviceWorker.register('sw.js').then(function (reg) {
+        // already controlling this page => assets are cached
+        if (navigator.serviceWorker.controller) { setBadge('Offline-ready: all files cached'); return; }
+        reg.addEventListener('updatefound', function () {
+          var sw = reg.installing;
+          if (!sw) return;
+          sw.addEventListener('statechange', function () {
+            if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+              setBadge('Offline-ready: all files cached (refresh to use cache)');
+            } else if (sw.state === 'activated') {
+              setBadge('Offline-ready: all files cached');
+            }
+          });
+        });
+      }).catch(function (e) { console.warn('[SW] registration failed:', e); });
+    }
+
+    // ---- Kill the fake "A midgame ad would appear here" popup ----
+    // The bundled CrazyGames SDK runs in "local" mode and emulates ads with an
+    // overlay. Replace requestAd with an instant finish so no ad UI ever shows.
+    (function () {
+      var attempts = 0;
+      (function tryPatch() {
+        attempts++;
+        try {
+          var sdk = (window.CrazyGames && window.CrazyGames.SDK) ||
+                    (window.Crazygames && window.Crazygames.SDK) || null;
+          if (sdk && sdk.ad && typeof sdk.ad.requestAd === 'function' && !sdk.ad.__noAds) {
+            sdk.ad.requestAd = function (type, callbacks) {
+              callbacks = callbacks || {};
+              // fire callbacks on the next tick, like the real SDK would
+              setTimeout(function () {
+                try { if (callbacks.adStarted) callbacks.adStarted(); } catch (e) {}
+                try { if (callbacks.adFinished) callbacks.adFinished(); } catch (e) {}
+              }, 0);
+              return Promise.resolve();
+            };
+            sdk.ad.__noAds = true;
+            // detach the overlay element so even legacy references can't display it
+            try {
+              var ov = sdk.ad.overlay;
+              if (ov && ov.parentElement) ov.parentElement.removeChild(ov);
+            } catch (e) {}
+            console.log('[no-ads] ad requests auto-finished');
+            return;
+          }
+        } catch (e) {}
+        if (attempts < 600) setTimeout(tryPatch, 100); // keep waiting up to ~60s
+      })();
+    })();
+
+    document.getElementById('fsbtn').addEventListener('click', function () {
+      var el = document.documentElement;
+      if (!document.fullscreenElement) {
+        el.requestFullscreen().then(function () { document.getElementById('canvas').focus(); });
+      } else {
+        document.exitFullscreen();
+      }
+    });
+  </script>
+</body>
+</html>
