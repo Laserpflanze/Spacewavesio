@@ -1,18 +1,86 @@
-"""Docker build step: downloads the Unity WebGL build files from the
-CrazyGames CDN, forcing identity (uncompressed) transfer, then verifies each
-file's magic bytes so a compressed/corrupt download can never silently ship.
+"""Docker build step: fetch the Unity WebGL build files from the CrazyGames CDN.
+
+The CDN behaves inconsistently depending on which edge server answers the
+request: the exact same URL can return the raw uncompressed content OR
+brotli/gzip-compressed bytes. Serving compressed bytes as-is breaks the game
+(the browser parses them as JS/data and fails, e.g. "Invalid character
+'\\ufffd'" or "still brotli-compressed" errors).
+
+This script normalizes every download to the plain uncompressed file the
+Unity loader expects (byte-for-byte identical to the locally verified build),
+verifies the magic bytes of each file, and fails the Docker build loudly if
+anything still looks wrong.
 """
+import gzip
 import os
+import subprocess
 import sys
 import urllib.request
 
 BASE = "https://files.crazygames.com/space-waves/114/Build"
 FILES = {
-    "Build/loader.js": (BASE + "/f5621fc8e6401e7302a362d609e496a1.loader.js", b"createUnityInstance"),
-    "Build/data.unityweb": (BASE + "/1a568795816f05437ab0d4e6f50dc4ac.data.br", b"UnityWebData1.0"),
-    "Build/wasm.wasm": (BASE + "/c1aca0022182358dc43860f4ad8c934f.wasm.br", b"\x00asm"),
-    "Build/framework.js": (BASE + "/285f771aa266df412210c567c3f51a97.framework.js.br", b"unityFramework"),
+    "Build/loader.js": (BASE + "/f5621fc8e6401e7302a362d609e496a1.loader.js",
+                        b"createUnityInstance"),
+    "Build/data.unityweb": (BASE + "/1a568795816f05437ab0d4e6f50dc4ac.data.br",
+                            b"UnityWebData1.0\0"),
+    "Build/wasm.wasm": (BASE + "/c1aca0022182358dc43860f4ad8c934f.wasm.br",
+                        b"\x00asm"),
+    "Build/framework.js": (BASE + "/285f771aa266df412210c567c3f51a97.framework.js.br",
+                           b"unityFramework"),
 }
+
+# Marker string the Unity loader itself uses to detect its brotli wrapper
+# (see hasUnityMarker in loader.js).
+UNITY_BROTLI_MARKER = b"UnityWeb Compressed Content"
+
+
+def brotli_decompress(raw):
+    """Decompress a brotli stream via the brotli CLI (installed with
+    `apk add brotli` in the Dockerfile), falling back to the python brotli
+    module if present. Returns None if the input is not valid brotli."""
+    try:
+        p = subprocess.run(["brotli", "-d", "-c"], input=raw,
+                           capture_output=True, timeout=600)
+        if p.returncode == 0:
+            return p.stdout
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print(f"  brotli CLI error: {e}", file=sys.stderr)
+    try:
+        import brotli  # optional pip package
+        return brotli.decompress(raw)
+    except Exception:
+        return None
+
+
+def normalize(raw, magic):
+    """Return (data, how) where data passes the magic check, or (None, why)."""
+    # 1. Already the plain uncompressed content? Done.
+    if magic in raw[:600]:
+        return raw, "already uncompressed"
+
+    # 2. gzip/gzip-compressed transfer?
+    if raw[:2] == b"\x1f\x8b":
+        try:
+            out = gzip.decompress(raw)
+            if magic in out[:600]:
+                return out, "gzip -> uncompressed"
+        except Exception:
+            pass
+
+    # 3. Brotli (with or without the Unity wrapper marker).
+    if UNITY_BROTLI_MARKER in raw[:64] or b"UnityWeb Compress" in raw[:64]:
+        out = brotli_decompress(raw)
+        if out and magic in out[:600]:
+            return out, "Unity brotli wrapper -> uncompressed"
+        return None, ("Unity brotli wrapper detected but decompression failed "
+                      "(is the `brotli` CLI installed in the image?)")
+    out = brotli_decompress(raw)
+    if out and len(out) > len(raw) and magic in out[:600]:
+        return out, "brotli -> uncompressed"
+
+    return None, "unexpected content (neither plain nor gzip/brotli of what we need)"
 
 
 def main():
@@ -20,26 +88,30 @@ def main():
     ok = True
     for dest, (url, magic) in FILES.items():
         req = urllib.request.Request(url, headers={
-            "Accept-Encoding": "identity",   # never accept gzip/brotli transfer encoding
-            "User-Agent": "railway-docker-build",
+            "Accept-Encoding": "identity",  # ask for no transfer encoding
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) railway-docker-build",
         })
         try:
-            with urllib.request.urlopen(req, timeout=180) as r:
-                data = r.read()
+            with urllib.request.urlopen(req, timeout=600) as r:
+                raw = r.read()
         except Exception as e:
             print(f"FAIL {dest}: download error: {e}", file=sys.stderr)
             ok = False
             continue
-        if magic not in data[:600]:
-            print(f"FAIL {dest}: unexpected content, first bytes: {data[:20]!r} "
-                  f"(transfer encoding still applied?)", file=sys.stderr)
+
+        data, how = normalize(raw, magic)
+        if data is None:
+            print(f"FAIL {dest}: {how}, first bytes: {raw[:24]!r}", file=sys.stderr)
             ok = False
             continue
+
         with open(dest, "wb") as f:
             f.write(data)
-        print(f"OK   {dest}: {len(data):,} bytes")
+        print(f"OK   {dest}: {len(data):,} bytes ({how})")
+
     if not ok:
         sys.exit("Build aborted: one or more game files are corrupt.")
+    print("All game files fetched and verified.")
 
 
 if __name__ == "__main__":

@@ -9,12 +9,13 @@ of them to GitHub directly from your phone's browser. The Unity build files
 Upload ALL of these (keep the names exactly):
 
 - `Dockerfile`
+- `fetch_build.py`
 - `server.py`
 - `index.html`
 - `sw.js`
 - `manifest.webmanifest`
 
-That's it. 5 files, none bigger than 8 KB.
+That's it. 6 files, none bigger than 8 KB.
 
 ## Steps from your phone
 
@@ -35,7 +36,11 @@ That's it. 5 files, none bigger than 8 KB.
 
 - Keep the Railway URL **private** — it's the developer's game, don't share it.
 - If the build fails with a download error, the CrazyGames CDN URL for build 114
-  may have changed — update the 4 URLs inside the `Dockerfile` (they come from
+  may have changed — update the 4 URLs inside `fetch_build.py` (they come from
   the game's "game files" page source).
+- The CDN sometimes serves brotli/gzip-compressed bytes depending on which of
+  its edge servers answers. `fetch_build.py` detects and decompresses that
+  automatically and verifies each file, so the game always gets plain,
+  verified content.
 - Everything else (fullscreen, no ads, offline cache) behaves exactly like the
   local version.
