@@ -42,8 +42,11 @@ That's it. 6 files, none bigger than 8 KB.
   its edge servers answers. `fetch_build.py` detects and decompresses that
   automatically and verifies each file, so the game always gets plain,
   verified content.
-- `fetch_build.py` also downloads the CrazyGames SDK and patches it to run in
-  "local" mode — the stock SDK refuses to work on custom domains. The page and
-  service worker make sure only this patched copy is ever used.
+- `fetch_build.py` also **patches framework.js**: the game normally loads the
+  CrazyGames SDK from their CDN at runtime — offline that script never arrives
+  and the game hangs forever, and online on a custom domain the SDK refuses to
+  run ("sdkDisabled"). The patch replaces the CDN loader with a complete local
+  stub SDK, so the game needs **zero network access for the SDK**: it boots and
+  plays fully offline, online, anywhere. No ads either way.
 - Everything else (fullscreen, no ads, offline cache) behaves exactly like the
   local version.

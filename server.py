@@ -22,11 +22,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     }
 
     def end_headers(self):
-        # let the browser cache the big immutable build assets,
-        # but always revalidate the shell
+        # The service worker is cache-first for /Build/, so HTTP caching here
+        # only matters when the SW cache was wiped. Never mark Build files
+        # immutable: after a redeploy the SW must re-download updated files.
         path = self.path.lower()
         if path.startswith("/build/"):
-            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+            self.send_header("Cache-Control", "public, max-age=0, must-revalidate")
         elif path.startswith("/sw.js") or path.startswith("/index.html") or path == "/":
             self.send_header("Cache-Control", "no-cache")
         super().end_headers()

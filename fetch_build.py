@@ -33,13 +33,71 @@ FILES = {
 # (see hasUnityMarker in loader.js).
 UNITY_BROTLI_MARKER = b"UnityWeb Compressed Content"
 
-# CrazyGames HTML5 SDK: the game loads it from their CDN, but it refuses to
-# work outside crazygames.com (environment "disabled" -> sdkDisabled errors).
-# We download it, force its environment check to "local", and the service
-# worker serves our patched copy in place of the CDN one.
-SDK_URL = "https://sdk.crazygames.com/crazygames-sdk-v3.js"
-SDK_OUT = "crazygames-sdk-v3.js"
-SDK_CHECK = '["localhost","127.0.0.1","preview.construct.net"].includes(window.location.hostname)'
+# The game's bundled glue normally loads the CrazyGames SDK from their CDN at
+# runtime. Offline that script never arrives -> JSLibCallback_Init never fires
+# -> the game hangs forever; online on our own domain it runs in "disabled"
+# mode (sdkDisabled errors). We patch framework.js right after download so no
+# external SDK is ever needed: a complete local stub is installed instead.
+SDK_LOADER_OLD = (
+    b'var script=document.createElement("script");'
+    b'script.src="https://sdk.crazygames.com/crazygames-sdk-v3.js";'
+    b'document.head.appendChild(script);'
+    b'script.addEventListener("load",function(){')
+
+SDK_STUB_NEW = (
+    b'var script={addEventListener:function(ev,fn){if(ev==="load")setTimeout(fn,0)}};'
+    b'(function(){function P(v){return Promise.resolve(v)}var noop=function(){};'
+    b'var sdk={environment:"local",init:function(){return P()},'
+    b'ad:{hasAdblock:function(){return P(false)},addAdblockPopupListener:noop,'
+    b'requestAd:function(type,cb){cb=cb||{};setTimeout(function(){'
+    b'try{if(cb.adStarted)cb.adStarted()}catch(e){}'
+    b'try{if(cb.adFinished)cb.adFinished()}catch(e){}},0);return P()},'
+    b'prefetchAd:function(){return P()}},'
+    b'game:{settings:{},quality:"",inviteLink:"",inviteParams:{},'
+    b'addSettingsChangeListener:noop,addQualityChangeListener:noop,'
+    b'addJoinRoomListener:noop,removeJoinRoomListener:noop,'
+    b'updateRoom:function(){return P()},setGameContext:noop,clearGameContext:noop,'
+    b'gameplayStart:noop,gameplayStop:noop,happytime:noop,'
+    b'showInviteButton:noop,hideInviteButton:noop,leftRoom:function(){return P()}},'
+    b'user:{isUserAccountAvailable:false,'
+    b'getUser:function(){return P({username:"Player",userId:"local-player",avatarUrl:""})},'
+    b'getUserToken:function(){return P("")},getXsollaUserToken:function(){return P("")},'
+    b'systemInfo:{browser:{name:"browser",version:"1"},os:{name:"os",version:"1"},deviceType:"desktop"},'
+    b'submitScore:function(){return P()},addScore:function(){return P()},'
+    b'addAuthListener:noop,showAuthPrompt:function(){return P(false)},'
+    b'showAccountLinkPrompt:function(){return P(false)},listFriends:function(){return P([])}},'
+    b'data:{getItem:function(k){try{return P(localStorage.getItem("cg_"+k))}catch(e){return P(null)}},'
+    b'setItem:function(k,v){try{localStorage.setItem("cg_"+k,String(v))}catch(e){}return P()},'
+    b'removeItem:function(k){try{localStorage.removeItem("cg_"+k)}catch(e){}return P()},'
+    b'clear:function(){try{for(var i=localStorage.length-1;i>=0;i--){var key=localStorage.key(i);'
+    b'if(key&&key.indexOf("cg_")===0)localStorage.removeItem(key)}}catch(e){}return P()},'
+    b'syncUnityGameData:function(){return P("")}},'
+    b'store:{setSandbox:noop,buyItem:function(){return P()}},'
+    b'analytics:{trackOrder:function(){return P()}},'
+    b'banner:{requestOverlayBanners:function(){return P([])}}};'
+    b'window.CrazyGames=window.CrazyGames||{};window.CrazyGames.SDK=sdk;'
+    b'window.Crazygames=window.Crazygames||{};window.Crazygames.sdk=sdk;'
+    b'window.Crazygames.SDK=sdk})();'
+    b'script.addEventListener("load",function(){')
+
+
+def patch_framework(path):
+    """Replace the CDN SDK loader with the local stub (see comment above)."""
+    with open(path, "rb") as f:
+        data = f.read()
+    if b"sdk.crazygames.com" not in data and b"window.CrazyGames.SDK=sdk" in data:
+        print(f"OK   {path}: SDK stub already applied")
+        return
+    if data.count(SDK_LOADER_OLD) != 1:
+        sys.exit(f"FAIL {path}: SDK loader pattern not found exactly once "
+                 f"({data.count(SDK_LOADER_OLD)}) — build file changed upstream?")
+    patched = data.replace(SDK_LOADER_OLD, SDK_STUB_NEW, 1)
+    if b"sdk.crazygames.com" in patched or b"unityFramework" not in patched:
+        sys.exit(f"FAIL {path}: SDK patch produced unexpected content")
+    with open(path, "wb") as f:
+        f.write(patched)
+    print(f"OK   {path}: SDK loader replaced with local stub "
+          f"({len(data):,} -> {len(patched):,} bytes)")
 
 
 def brotli_decompress(raw):
@@ -120,40 +178,8 @@ def main():
     if not ok:
         sys.exit("Build aborted: one or more game files are corrupt.")
 
-    fetch_sdk()
-    print("All game files fetched and verified.")
-
-
-def fetch_sdk():
-    """Download the CrazyGames SDK and force its environment to 'local'."""
-    req = urllib.request.Request(SDK_URL, headers={
-        "Accept-Encoding": "identity",
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) railway-docker-build",
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=120) as r:
-            code = r.read().decode("utf-8", "strict")
-    except Exception as e:
-        print(f"FAIL {SDK_OUT}: download error: {e}", file=sys.stderr)
-        sys.exit("Build aborted: could not download the CrazyGames SDK.")
-
-    if SDK_CHECK in code:
-        code = code.replace(SDK_CHECK, "true", 1)
-        print(f"OK   {SDK_OUT}: {len(code):,} bytes (environment forced to 'local')")
-    else:
-        # fall back to a looser match in case the minified array changes
-        import re
-        patched = re.sub(
-            r"\[\s*[\"']localhost[\"']\s*,[^\]]*\]\s*\.\s*includes\s*\(\s*window\.location\.hostname\s*\)",
-            "true", code, count=1)
-        if patched != code:
-            code = patched
-            print(f"OK   {SDK_OUT}: {len(code):,} bytes (environment forced to 'local', loose match)")
-        else:
-            print(f"WARN {SDK_OUT}: environment check not found — served UNPATCHED; "
-                  "the SDK may refuse to work on custom domains.", file=sys.stderr)
-    with open(SDK_OUT, "w", encoding="utf-8") as f:
-        f.write(code)
+    patch_framework("Build/framework.js")
+    print("All game files fetched, verified and patched (no external SDK needed).")
 
 
 if __name__ == "__main__":

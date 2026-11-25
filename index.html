@@ -6,15 +6,11 @@
   <title>Space Waves (standalone)</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <meta name="theme-color" content="#13141E" />
-  <!-- Patched CrazyGames SDK (environment forced to 'local'): loading it here
-       means the game's SDK loader finds it already present and never pulls the
-       CDN version — which would run in "disabled" mode on our own domain. -->
-  <script src="crazygames-sdk-v3.js"></script>
   <script>
-    // Route any attempt to load the SDK from the CDN to our patched local copy.
-    // The game's SDK loader injects https://sdk.crazygames.com/... during boot;
-    // on our own domain that version would run in "disabled" mode and freeze
-    // the game. This must be defined before any SDK script tag is parsed.
+    // Route any attempt to load the SDK from the CDN to nothing — the game's
+    // framework.js is patched at build time to use a full local SDK stub, so
+    // no external SDK is ever fetched (works fully offline). This is just a
+    // safety net in case any other code path ever tries the CDN again.
     (function () {
       try {
         var d = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
@@ -23,7 +19,7 @@
           set: function (v) {
             try {
               if (typeof v === 'string' && v.indexOf('sdk.crazygames.com') !== -1) {
-                v = 'crazygames-sdk-v3.js';
+                return; // block: the patched framework.js already has the local stub
               }
             } catch (e) {}
             d.set.call(this, v);
