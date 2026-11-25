@@ -3,8 +3,8 @@
    at runtime, as the game itself downloads them — so nothing is ever
    downloaded twice and the tab never janks from a giant parallel pre-cache.
    Cache-first afterwards: the game boots from cache even offline. */
-var CACHE = 'space-waves-v5';
-var SHELL = ['./', './index.html', './manifest.webmanifest'];
+var CACHE = 'space-waves-v6';
+var SHELL = ['./', './index.html', './manifest.webmanifest', './crazygames-sdk-v3.js'];
 
 self.addEventListener('install', function (e) {
   self.skipWaiting();
@@ -32,6 +32,27 @@ self.addEventListener('activate', function (e) {
 self.addEventListener('fetch', function (e) {
   if (e.request.method !== 'GET') return;
   var url = new URL(e.request.url);
+
+  // CrazyGames SDK script: the game loads it from their CDN, but the CDN
+  // version refuses to run on custom domains ("disabled" environment).
+  // Serve our patched local-mode copy instead — also makes the game fully
+  // offline-capable.
+  if (url.hostname === 'sdk.crazygames.com' && url.pathname.indexOf('crazygames-sdk') !== -1) {
+    e.respondWith(
+      caches.match('./crazygames-sdk-v3.js').then(function (hit) {
+        if (hit) return hit;
+        return fetch('./crazygames-sdk-v3.js').then(function (resp) {
+          if (resp && resp.ok) {
+            var copy = resp.clone();
+            caches.open(CACHE).then(function (c) { c.put('./crazygames-sdk-v3.js', copy); });
+          }
+          return resp;
+        });
+      })
+    );
+    return;
+  }
+
   if (url.origin !== self.location.origin) return;
 
   var isShell = e.request.mode === 'navigate' ||

@@ -6,6 +6,33 @@
   <title>Space Waves (standalone)</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <meta name="theme-color" content="#13141E" />
+  <!-- Patched CrazyGames SDK (environment forced to 'local'): loading it here
+       means the game's SDK loader finds it already present and never pulls the
+       CDN version — which would run in "disabled" mode on our own domain. -->
+  <script src="crazygames-sdk-v3.js"></script>
+  <script>
+    // Route any attempt to load the SDK from the CDN to our patched local copy.
+    // The game's SDK loader injects https://sdk.crazygames.com/... during boot;
+    // on our own domain that version would run in "disabled" mode and freeze
+    // the game. This must be defined before any SDK script tag is parsed.
+    (function () {
+      try {
+        var d = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+        Object.defineProperty(HTMLScriptElement.prototype, 'src', {
+          get: d.get,
+          set: function (v) {
+            try {
+              if (typeof v === 'string' && v.indexOf('sdk.crazygames.com') !== -1) {
+                v = 'crazygames-sdk-v3.js';
+              }
+            } catch (e) {}
+            d.set.call(this, v);
+          },
+          configurable: true
+        });
+      } catch (e) {}
+    })();
+  </script>
   <style>
     html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #13141E; overflow: hidden; }
     #wrap { position: relative; width: 100%; height: 100%; }
@@ -185,6 +212,8 @@
     // ---- Kill the fake "A midgame ad would appear here" popup ----
     // The bundled CrazyGames SDK runs in "local" mode and emulates ads with an
     // overlay. Replace requestAd with an instant finish so no ad UI ever shows.
+    // Keeps polling: if the SDK script is re-executed, the new object is
+    // patched again too.
     (function () {
       var attempts = 0;
       (function tryPatch() {
@@ -209,7 +238,6 @@
               if (ov && ov.parentElement) ov.parentElement.removeChild(ov);
             } catch (e) {}
             console.log('[no-ads] ad requests auto-finished');
-            return;
           }
         } catch (e) {}
         if (attempts < 600) setTimeout(tryPatch, 100); // keep waiting up to ~60s

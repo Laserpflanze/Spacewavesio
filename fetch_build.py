@@ -33,6 +33,14 @@ FILES = {
 # (see hasUnityMarker in loader.js).
 UNITY_BROTLI_MARKER = b"UnityWeb Compressed Content"
 
+# CrazyGames HTML5 SDK: the game loads it from their CDN, but it refuses to
+# work outside crazygames.com (environment "disabled" -> sdkDisabled errors).
+# We download it, force its environment check to "local", and the service
+# worker serves our patched copy in place of the CDN one.
+SDK_URL = "https://sdk.crazygames.com/crazygames-sdk-v3.js"
+SDK_OUT = "crazygames-sdk-v3.js"
+SDK_CHECK = '["localhost","127.0.0.1","preview.construct.net"].includes(window.location.hostname)'
+
 
 def brotli_decompress(raw):
     """Decompress a brotli stream via the brotli CLI (installed with
@@ -111,7 +119,41 @@ def main():
 
     if not ok:
         sys.exit("Build aborted: one or more game files are corrupt.")
+
+    fetch_sdk()
     print("All game files fetched and verified.")
+
+
+def fetch_sdk():
+    """Download the CrazyGames SDK and force its environment to 'local'."""
+    req = urllib.request.Request(SDK_URL, headers={
+        "Accept-Encoding": "identity",
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) railway-docker-build",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            code = r.read().decode("utf-8", "strict")
+    except Exception as e:
+        print(f"FAIL {SDK_OUT}: download error: {e}", file=sys.stderr)
+        sys.exit("Build aborted: could not download the CrazyGames SDK.")
+
+    if SDK_CHECK in code:
+        code = code.replace(SDK_CHECK, "true", 1)
+        print(f"OK   {SDK_OUT}: {len(code):,} bytes (environment forced to 'local')")
+    else:
+        # fall back to a looser match in case the minified array changes
+        import re
+        patched = re.sub(
+            r"\[\s*[\"']localhost[\"']\s*,[^\]]*\]\s*\.\s*includes\s*\(\s*window\.location\.hostname\s*\)",
+            "true", code, count=1)
+        if patched != code:
+            code = patched
+            print(f"OK   {SDK_OUT}: {len(code):,} bytes (environment forced to 'local', loose match)")
+        else:
+            print(f"WARN {SDK_OUT}: environment check not found — served UNPATCHED; "
+                  "the SDK may refuse to work on custom domains.", file=sys.stderr)
+    with open(SDK_OUT, "w", encoding="utf-8") as f:
+        f.write(code)
 
 
 if __name__ == "__main__":

@@ -42,5 +42,8 @@ That's it. 6 files, none bigger than 8 KB.
   its edge servers answers. `fetch_build.py` detects and decompresses that
   automatically and verifies each file, so the game always gets plain,
   verified content.
+- `fetch_build.py` also downloads the CrazyGames SDK and patches it to run in
+  "local" mode — the stock SDK refuses to work on custom domains. The page and
+  service worker make sure only this patched copy is ever used.
 - Everything else (fullscreen, no ads, offline cache) behaves exactly like the
   local version.
