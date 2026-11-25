@@ -1,7 +1,7 @@
 /* Space Waves offline service worker.
    Precaches every game file on first visit; cache-first afterwards,
    so the game boots from cache even when the network is down. */
-var CACHE = 'space-waves-v3';
+var CACHE = 'space-waves-v4';
 var ASSETS = [
   './',
   './index.html',
