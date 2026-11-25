@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Space Waves (standalone)</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <meta name="theme-color" content="#13141E" />
@@ -20,6 +20,7 @@
     #fsbtn:hover { opacity: 1; }
     #err { color: #ff8080; white-space: pre-wrap; max-width: 80%; text-align: center; }
     #swbadge { color: #9dffc4; font-size: 13px; min-height: 16px; }
+    #reset { color: #7f8296; font-size: 12px; text-decoration: underline; cursor: pointer; }
     /* never show the SDK's local-mode fake ad overlay, whatever happens */
     #local-overlay { display: none !important; }
   </style>
@@ -34,10 +35,41 @@
       <div id="pct">Downloading… 0%</div>
       <div id="swbadge"></div>
       <div id="err"></div>
+      <div id="reset">Stuck? Reset game files &amp; cache</div>
     </div>
   </div>
 
   <script>
+    // ---- Cap render resolution on very dense screens -----------------------
+    // The game renders at windowSize x devicePixelRatio. Phones report DPR 3,
+    // which can freeze the tab; 2x stays sharp but is far lighter.
+    (function () {
+      try {
+        var real = window.devicePixelRatio || 1;
+        var capped = Math.min(real, 2);
+        if (capped !== real) {
+          Object.defineProperty(window, 'devicePixelRatio', {
+            get: function () { return capped; }, configurable: true
+          });
+        }
+      } catch (e) {}
+    })();
+
+    // ---- SiteLock bypass ----------------------------------------------------
+    // The bundled CrazySDK freezes the game forever (SiteLockFreezeGame /
+    // SiteLockFreezeGameCoroutine) when the host is not in its whitelist
+    // (crazygames.com, msnfun.com, localhost...). Unity's C# reads
+    // Application.absoluteURL from document.URL, so report localhost —
+    // an allowed host — and the check passes on our own domain.
+    (function () {
+      try {
+        Object.defineProperty(document, 'URL', {
+          get: function () { return 'http://localhost/'; },
+          configurable: true
+        });
+      } catch (e) { console.warn('[sitelock] patch failed', e); }
+    })();
+
     // ---- Minimal CrazyGames SDK stub so the game does not crash outside the gameframe ----
     (function () {
       const noop = function () { return Promise.resolve(); };
@@ -69,7 +101,10 @@
       }, function (progress) {
         var p = Math.round(progress * 100);
         document.getElementById('fill').style.width = p + '%';
-        document.getElementById('pct').textContent = 'Downloading… ' + p + '%';
+        // past 90% Unity is compiling/starting, not downloading — say so
+        document.getElementById('pct').textContent = p >= 90
+          ? 'Starting game… (first boot can take a while on a phone)'
+          : 'Downloading… ' + p + '%';
       }).then(function (instance) {
         var l = document.getElementById('loader');
         if (l) l.remove();
@@ -84,6 +119,13 @@
     // ---- Offline cache (service worker) ----
     var badge = document.getElementById('swbadge');
     function setBadge(t) { if (badge) badge.textContent = t; }
+    function checkOfflineReady() {
+      if (!('caches' in window)) return;
+      caches.match('Build/wasm.wasm', { ignoreSearch: true }).then(function (hit) {
+        if (hit) setBadge('Offline-ready: all files cached');
+        else setTimeout(checkOfflineReady, 4000);
+      }).catch(function () { setTimeout(checkOfflineReady, 4000); });
+    }
     if ('serviceWorker' in navigator) {
       // when a new service worker takes over (e.g. after updating these files),
       // reload once automatically so the user never sees a stale page
@@ -94,21 +136,51 @@
         if (navigator.serviceWorker.controller) location.reload();
       });
       navigator.serviceWorker.register('sw.js').then(function (reg) {
-        // already controlling this page => assets are cached
-        if (navigator.serviceWorker.controller) { setBadge('Offline-ready: all files cached'); return; }
+        if (navigator.serviceWorker.controller) checkOfflineReady();
         reg.addEventListener('updatefound', function () {
           var sw = reg.installing;
           if (!sw) return;
           sw.addEventListener('statechange', function () {
-            if (sw.state === 'installed' && navigator.serviceWorker.controller) {
-              setBadge('Offline-ready: all files cached (refresh to use cache)');
-            } else if (sw.state === 'activated') {
-              setBadge('Offline-ready: all files cached');
-            }
+            if (sw.state === 'activated') checkOfflineReady();
           });
         });
       }).catch(function (e) { console.warn('[SW] registration failed:', e); });
     }
+
+    // ---- Emergency reset: wipe every cached copy and start fresh ----------
+    // Recovers from corrupt cached builds without devtools.
+    document.getElementById('reset').addEventListener('click', function () {
+      setBadge('Resetting caches…');
+      try {
+        if ('caches' in window) {
+          caches.keys().then(function (keys) {
+            keys.forEach(function (k) {
+              if (k.indexOf('space-waves') === 0) caches.delete(k);
+            });
+          });
+        }
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function (regs) {
+            regs.forEach(function (r) { r.unregister(); });
+          });
+        }
+        // wipe Unity's own download cache (IndexedDB "UnityCache_*")
+        if (window.indexedDB) {
+          if (indexedDB.databases) {
+            indexedDB.databases().then(function (dbs) {
+              dbs.forEach(function (d) {
+                if (d.name && d.name.indexOf('UnityCache') === 0) indexedDB.deleteDatabase(d.name);
+              });
+            }).catch(function () {
+              try { indexedDB.deleteDatabase('UnityCache_Unity_WebGL Player'); } catch (e) {}
+            });
+          } else {
+            try { indexedDB.deleteDatabase('UnityCache_Unity_WebGL Player'); } catch (e) {}
+          }
+        }
+        setTimeout(function () { location.reload(); }, 1200);
+      } catch (e) { location.reload(); }
+    });
 
     // ---- Kill the fake "A midgame ad would appear here" popup ----
     // The bundled CrazyGames SDK runs in "local" mode and emulates ads with an
@@ -144,14 +216,23 @@
       })();
     })();
 
-    document.getElementById('fsbtn').addEventListener('click', function () {
+    // ---- Fullscreen (hidden on iPhones, where the API doesn't exist) ------
+    (function () {
+      var btn = document.getElementById('fsbtn');
       var el = document.documentElement;
-      if (!document.fullscreenElement) {
-        el.requestFullscreen().then(function () { document.getElementById('canvas').focus(); });
-      } else {
-        document.exitFullscreen();
-      }
-    });
+      var req = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (!req) { btn.style.display = 'none'; return; }
+      btn.addEventListener('click', function () {
+        try {
+          if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+            var p = req.call(el);
+            if (p && p.then) p.then(function () { document.getElementById('canvas').focus(); }).catch(function () {});
+          } else if (document.exitFullscreen) {
+            document.exitFullscreen();
+          }
+        } catch (e) {}
+      });
+    })();
   </script>
 </body>
 </html>
