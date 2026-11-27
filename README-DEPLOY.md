@@ -18,11 +18,14 @@ progress with **zero network access**.
 
 ```
 index.html                        ← loader (black/white dark mode)
-sw.js                             ← service worker (v11): precaches the shell AND
-                                     all Traffic Rider StreamingAssets at install
-                                     (FMOD banks + scene bundles — without
+sw.js                             ← service worker (v12): precaches the shell AND
+                                     ALL Traffic Rider StreamingAssets at install
+                                     (3 FMOD banks + 27 Unity bundles: menu scene
+                                     + every purchasable bike model — without
                                      menusceneasset the game hangs on a black
-                                     loading screen after the first mission)
+                                     loading screen after the first mission,
+                                     without a bike bundle it hangs when you ride
+                                     that bike)
 manifest.webmanifest
 server.py                         ← static server, correct MIME + cache headers
 Dockerfile                        ← runs fetch_build.py at Railway build time

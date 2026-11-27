@@ -59,6 +59,30 @@ GAMES = {
     },
 }
 
+# Licensed-bike Unity bundles: the in-game models for the purchasable
+# real-world bikes (Honda CBR250R, Ducati Streetfighter, Harley Davidson,
+# ...). The garage previews come from the data file, but RIDING one of these
+# bikes fetches StreamingAssets/AssetBundles/<name> at runtime — a missing
+# file = hang on the bike-selection/loading screen.
+# Complete inventory (verified 2026-11-27 by exhaustive probing of 900+
+# candidate names over 4 rounds; no per-bike FMOD banks exist besides
+# MBK_Nitro2 above, and no other scene/model bundles exist).
+TR_BIKE_BUNDLES = [
+    "aprilia_rsv4", "bmw_k1200s", "bmw_s1000rr", "dodge_tomahawk",
+    "ducati_1098r", "ducati_multistrada", "ducati_streetfighter_v4_sp2",
+    "harley_davidson_fxstc", "harley_davidson_vrod", "honda_cb750f",
+    "honda_cbr_250r", "indian_chieftain", "kawasaki_h2r", "kawasaki_klx250",
+    "kawasaki_kx450f", "kawasaki_ninja_zx10r", "kawasaki_z750",
+    "kawasaki_zzr1400", "lazareth_lm410", "mv_agusta_f4", "pulsar_rs200",
+    "suzuki_hayabusa", "vespa_946", "vyrus_alyen", "yamaha_vmax",
+]
+BASE_TR_ROOT = "https://files.crazygames.com/traffic-rider-vvq/92"  # StreamingAssets live outside /Build
+GAMES["traffic-rider"].update({
+    f"StreamingAssets/AssetBundles/{s}": (
+        BASE_TR_ROOT + f"/StreamingAssets/AssetBundles/{s}", b"UnityFS")
+    for s in TR_BIKE_BUNDLES
+})
+
 # Marker string the Unity loader itself uses to detect its brotli wrapper
 # (see hasUnityMarker in loader.js).
 UNITY_BROTLI_MARKER = b"UnityWeb Compressed Content"
@@ -209,11 +233,94 @@ def download(url, attempts=6):
                 return r.read()
         except Exception as e:
             last = e
-            wait = 3 * (i + 1)
-            print(f"  retry {i + 1}/{attempts} for {url} ({e}) — sleeping {wait}s",
-                  file=sys.stderr)
-            time.sleep(wait)
+            if i + 1 < attempts:
+                wait = 3 * (i + 1)
+                print(f"  retry {i + 1}/{attempts} for {url} ({e}) — sleeping {wait}s",
+                      file=sys.stderr)
+                time.sleep(wait)
     raise RuntimeError(f"download failed after {attempts} attempts: {last}")
+
+
+# The S3 bucket has NO directory listing (verified 2026-11-27), so "download
+# everything" can only be done by probing every name the game could request.
+# FILES above is the verified complete inventory (2026-11-27, 4 probing
+# rounds / 900+ candidate names): the CDN's StreamingAssets contains exactly
+# the 3 FMOD banks + 27 Unity bundles (menu scene + one per purchasable bike)
+# listed there — every other candidate probed (per-bike banks, other scene
+# bundles, etc/dxt texture variants) returned 404 on the CDN itself.
+# This list is re-probed at every build: if the developer ever ships a new
+# file (e.g. a bank for a new bike), the build grabs it automatically instead
+# of the game hanging on a missing request at runtime.
+EXTRA_PROBE = (
+    ["MBK_%s.bank" % n for n in (
+        "Nitro", "Nitro2", "Nitro3",
+        "kawasaki_1400_GTR", "KLX250", "KX450F", "KLX450F", "X450F",
+        "Ninja", "Ninja3", "ZX10R", "Z750", "Z800",
+        "suzuki_Hayabusa_GSX1300R", "Hayabusa", "GSX1300R",
+        "vespa_946", "Vespa946",
+        "FZH", "FZHTurbo", "Turbo", "V900", "V900CX", "KF450T", "CX750F",
+        "VX95", "VX95Night", "KBX250", "Shadow", "ShadowR",
+    )]
+    + ["AssetBundles/mbk_%s" % n.lower() for n in (
+        "Nitro", "Nitro2", "Nitro3",
+        "kawasaki_1400_GTR", "KLX250", "KX450F", "KLX450F", "X450F",
+        "Ninja", "Ninja3", "ZX10R", "Z750", "Z800",
+        "suzuki_Hayabusa_GSX1300R", "Hayabusa", "GSX1300R",
+        "vespa_946", "Vespa946",
+        "FZH", "FZHTurbo", "Turbo", "V900", "V900CX", "KF450T", "CX750F",
+        "VX95", "VX95Night", "KBX250", "Shadow", "ShadowR",
+    )]
+    + [
+        # other Unity scene bundles (menuScene -> menusceneasset is the only
+        # one that exists today; gameplay scenes live inside data.unityweb)
+        "AssetBundles/mainsceneasset", "AssetBundles/gamesceneasset",
+        "AssetBundles/loadingsceneasset", "AssetBundles/citysceneasset",
+        "AssetBundles/crazysdkloadingsceneasset",
+        # generic asset bundles (traffic models etc. — all in data today)
+        "AssetBundles/carsasset", "AssetBundles/trafficasset",
+        "AssetBundles/trucksasset", "AssetBundles/playerasset",
+        "AssetBundles/environmentasset", "AssetBundles/wheelasset",
+        "AssetBundles/helmetasset", "AssetBundles/roadasset",
+    ]
+)
+
+BASE_TRAFFIC_RIDER = "https://files.crazygames.com/traffic-rider-vvq/92"
+
+
+def probe_extras(slug):
+    """Re-probe the CDN for any file not in the verified inventory and
+    download it if it appeared. Never fails the build (extra files are a
+    bonus; required files above already succeeded)."""
+    known = set(GAMES[slug].keys())
+    found = 0
+    for rel in EXTRA_PROBE:
+        if f"StreamingAssets/{rel}" in known:
+            continue
+        url = f"{BASE_TRAFFIC_RIDER}/StreamingAssets/{rel}"
+        try:
+            raw = download(url, attempts=1)
+        except Exception:
+            continue  # 404 — expected for all names that don't exist
+        # S3 error pages are XML — never save those.
+        head = raw[:100].lstrip()
+        if raw.startswith(b"<?xml") or head.startswith(b"<Error"):
+            continue
+        dest = f"games/{slug}/StreamingAssets/{rel}"
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, "wb") as f:
+            f.write(raw)
+        found += 1
+        print(f"EXTRA {dest}: {len(raw):,} bytes (new on CDN — grabbed)")
+        # normalize known types if possible (banks/bundles are uncompressed)
+        if raw[:4] not in (b"FEV ", b"Unit") and len(raw) > 4096:
+            print(f"WARN  {dest}: unexpected magic {raw[:8]!r} — saved as-is",
+                  file=sys.stderr)
+    if found == 0:
+        print("CDN inventory check: no additional StreamingAssets files "
+              "found (inventory confirmed complete).")
+    else:
+        print(f"CDN inventory check: {found} new file(s) downloaded — "
+              "add them to sw.js SHELL to precache them.")
 
 
 def main():
@@ -241,6 +348,8 @@ def main():
             print(f"OK   {dest}: {len(data):,} bytes ({how})")
 
         patch_framework(f"games/{slug}/Build/framework.js")
+        if slug == "traffic-rider":
+            probe_extras(slug)
 
     if not ok:
         sys.exit("Build aborted: one or more game files are corrupt.")

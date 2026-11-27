@@ -3,7 +3,7 @@
    cached at runtime, as each game itself downloads them — so nothing is ever
    downloaded twice and the tab never janks from a giant parallel pre-cache.
    Cache-first afterwards: every game boots from cache even offline. */
-var CACHE = 'space-waves-v11';
+var CACHE = 'space-waves-v12';
 var SHELL = [
   './',
   './index.html',
@@ -11,14 +11,40 @@ var SHELL = [
   './games/space-waves/index.html',
   './games/traffic-rider/index.html',
   /* Traffic Rider StreamingAssets: precached at install so every scene
-     transition and audio bank is available even on the very first offline
-     run. Missing menusceneasset = stuck on a black loading screen after the
-     first mission (the game reloads its menu scene from that bundle). */
+     transition, audio bank and bike model is available even on the very
+     first offline run. Missing menusceneasset = stuck on a black loading
+     screen after the first mission (the game reloads its menu scene from
+     that bundle); missing <bike> bundle = hang when riding that bike. */
   './games/traffic-rider/StreamingAssets/Master.bank',
   './games/traffic-rider/StreamingAssets/Master.strings.bank',
   './games/traffic-rider/StreamingAssets/MBK_Nitro2.bank',
   './games/traffic-rider/StreamingAssets/AssetBundles/mbk_nitro',
-  './games/traffic-rider/StreamingAssets/AssetBundles/menusceneasset'
+  './games/traffic-rider/StreamingAssets/AssetBundles/menusceneasset',
+  './games/traffic-rider/StreamingAssets/AssetBundles/aprilia_rsv4',
+  './games/traffic-rider/StreamingAssets/AssetBundles/bmw_k1200s',
+  './games/traffic-rider/StreamingAssets/AssetBundles/bmw_s1000rr',
+  './games/traffic-rider/StreamingAssets/AssetBundles/dodge_tomahawk',
+  './games/traffic-rider/StreamingAssets/AssetBundles/ducati_1098r',
+  './games/traffic-rider/StreamingAssets/AssetBundles/ducati_multistrada',
+  './games/traffic-rider/StreamingAssets/AssetBundles/ducati_streetfighter_v4_sp2',
+  './games/traffic-rider/StreamingAssets/AssetBundles/harley_davidson_fxstc',
+  './games/traffic-rider/StreamingAssets/AssetBundles/harley_davidson_vrod',
+  './games/traffic-rider/StreamingAssets/AssetBundles/honda_cb750f',
+  './games/traffic-rider/StreamingAssets/AssetBundles/honda_cbr_250r',
+  './games/traffic-rider/StreamingAssets/AssetBundles/indian_chieftain',
+  './games/traffic-rider/StreamingAssets/AssetBundles/kawasaki_h2r',
+  './games/traffic-rider/StreamingAssets/AssetBundles/kawasaki_klx250',
+  './games/traffic-rider/StreamingAssets/AssetBundles/kawasaki_kx450f',
+  './games/traffic-rider/StreamingAssets/AssetBundles/kawasaki_ninja_zx10r',
+  './games/traffic-rider/StreamingAssets/AssetBundles/kawasaki_z750',
+  './games/traffic-rider/StreamingAssets/AssetBundles/kawasaki_zzr1400',
+  './games/traffic-rider/StreamingAssets/AssetBundles/lazareth_lm410',
+  './games/traffic-rider/StreamingAssets/AssetBundles/mv_agusta_f4',
+  './games/traffic-rider/StreamingAssets/AssetBundles/pulsar_rs200',
+  './games/traffic-rider/StreamingAssets/AssetBundles/suzuki_hayabusa',
+  './games/traffic-rider/StreamingAssets/AssetBundles/vespa_946',
+  './games/traffic-rider/StreamingAssets/AssetBundles/vyrus_alyen',
+  './games/traffic-rider/StreamingAssets/AssetBundles/yamaha_vmax'
 ];
 
 self.addEventListener('install', function (e) {
