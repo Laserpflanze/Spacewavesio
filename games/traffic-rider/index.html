@@ -128,6 +128,41 @@
       } catch (e) { console.warn('[localhost rewrite] patch failed', e); }
     })();
 
+    // ---- Keyboard detection -> desktop mode ---------------------------------
+    // The game only wires up keyboard controls when it believes it runs on a
+    // desktop browser. On iPad it picks touch-only mode. So: the first real
+    // hardware key press flips a persistent flag and reloads once; from then
+    // on Unity sees a desktop browser identity. Touch controls keep working
+    // either way.
+    (function () {
+      var FLAG = 'arcade_desktop_mode';
+      var DESKTOP_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+      var desktop = false;
+      try { desktop = localStorage.getItem(FLAG) === '1'; } catch (e) {}
+
+      if (desktop) {
+        // Present as desktop Safari so the game enables its keyboard mode.
+        try {
+          Object.defineProperty(navigator, 'userAgent', {
+            get: function () { return DESKTOP_UA; }, configurable: true
+          });
+          Object.defineProperty(navigator, 'platform', {
+            get: function () { return 'MacIntel'; }, configurable: true
+          });
+        } catch (e) { console.warn('[desktop mode] UA spoof failed', e); }
+      } else {
+        // Waiting for keyboard evidence. Ignore relayed/synthetic events.
+        var onKey = function (e) {
+          if (e.__arcadeRelayed) return;
+          window.removeEventListener('keydown', onKey, true);
+          var stored = false;
+          try { localStorage.setItem(FLAG, '1'); stored = true; } catch (err) {}
+          if (stored) location.reload(); // one-time reboot into desktop mode
+        };
+        window.addEventListener('keydown', onKey, true);
+      }
+    })();
+
     // ---- Keyboard relay (iPad Safari fix) -----------------------------------
     // Unity listens for keys on the canvas element only. On iPad Safari,
     // focus() on a canvas is unreliable, so hardware-keyboard events land on
@@ -233,6 +268,7 @@
     // ---- Emergency reset ----------------------------------------------------
     document.getElementById('reset').addEventListener('click', function () {
       setBadge('Resetting caches…');
+      try { localStorage.removeItem('arcade_desktop_mode'); } catch (e) {}
       try {
         if ('caches' in window) {
           caches.keys().then(function (keys) {
