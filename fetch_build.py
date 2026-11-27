@@ -49,6 +49,13 @@ GAMES = {
         "StreamingAssets/MBK_Nitro2.bank":    ("https://files.crazygames.com/traffic-rider-vvq/92/StreamingAssets/MBK_Nitro2.bank", b"FEV "),
         # Unity AssetBundle loaded at startup (the "Nitro" bike model).
         "StreamingAssets/AssetBundles/mbk_nitro": ("https://files.crazygames.com/traffic-rider-vvq/92/StreamingAssets/AssetBundles/mbk_nitro", b"UnityFS"),
+        # Unity SCENE bundle for the menu: after EVERY race the game reloads
+        # its menu scene FROM THIS BUNDLE (LoadMenuScene -> "menuScene" ->
+        # StreamingAssets/AssetBundles/menusceneasset). Missing it = the
+        # loading screen after the first mission never finishes (stuck on a
+        # black screen forever). It is the only scene bundle the CDN ships
+        # (mainsceneasset etc. are 404 - gameplay scenes live in the data file).
+        "StreamingAssets/AssetBundles/menusceneasset": ("https://files.crazygames.com/traffic-rider-vvq/92/StreamingAssets/AssetBundles/menusceneasset", b"UnityFS"),
     },
 }
 

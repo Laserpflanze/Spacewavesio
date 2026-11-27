@@ -3,13 +3,22 @@
    cached at runtime, as each game itself downloads them — so nothing is ever
    downloaded twice and the tab never janks from a giant parallel pre-cache.
    Cache-first afterwards: every game boots from cache even offline. */
-var CACHE = 'space-waves-v10';
+var CACHE = 'space-waves-v11';
 var SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
   './games/space-waves/index.html',
-  './games/traffic-rider/index.html'
+  './games/traffic-rider/index.html',
+  /* Traffic Rider StreamingAssets: precached at install so every scene
+     transition and audio bank is available even on the very first offline
+     run. Missing menusceneasset = stuck on a black loading screen after the
+     first mission (the game reloads its menu scene from that bundle). */
+  './games/traffic-rider/StreamingAssets/Master.bank',
+  './games/traffic-rider/StreamingAssets/Master.strings.bank',
+  './games/traffic-rider/StreamingAssets/MBK_Nitro2.bank',
+  './games/traffic-rider/StreamingAssets/AssetBundles/mbk_nitro',
+  './games/traffic-rider/StreamingAssets/AssetBundles/menusceneasset'
 ];
 
 self.addEventListener('install', function (e) {
