@@ -131,6 +131,37 @@
       } catch (e) { console.warn('[localhost rewrite] patch failed', e); }
     })();
 
+    // ---- Keyboard relay (iPad Safari fix) -----------------------------------
+    // Unity listens for keys on the canvas element only; on iPad Safari,
+    // canvas focus() is unreliable so hardware-keyboard events land on
+    // document/body. Mirror every key event onto the canvas.
+    (function () {
+      try {
+        var canvas = document.getElementById('canvas');
+        function relay(type) {
+          return function (e) {
+            if (e.__arcadeRelayed || e.target === canvas) return;
+            var syn = new KeyboardEvent(type, {
+              key: e.key, code: e.code, location: e.location,
+              ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey,
+              metaKey: e.metaKey, repeat: e.repeat,
+              bubbles: true, cancelable: true
+            });
+            try {
+              Object.defineProperty(syn, 'keyCode', { get: function () { return e.keyCode; } });
+              Object.defineProperty(syn, 'which', { get: function () { return e.which; } });
+            } catch (err) {}
+            syn.__arcadeRelayed = true;
+            canvas.dispatchEvent(syn);
+            if (e.keyCode >= 32 && e.keyCode <= 40) e.preventDefault(); // no arrow/space scrolling
+          };
+        }
+        ['keydown', 'keyup', 'keypress'].forEach(function (t) {
+          window.addEventListener(t, relay(t), true);
+        });
+      } catch (e) { console.warn('[keyboard relay] failed', e); }
+    })();
+
     // ---- Unity loader -------------------------------------------------------
     var script = document.createElement('script');
     script.src = 'Build/loader.js';
