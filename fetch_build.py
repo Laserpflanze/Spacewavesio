@@ -19,7 +19,9 @@ import gzip
 import os
 import subprocess
 import sys
+import time
 import urllib.request
+import urllib.error
 
 BASE_SW = "https://files.crazygames.com/space-waves/114/Build"
 BASE_TR = "https://files.crazygames.com/traffic-rider-vvq/92/Build"
@@ -38,6 +40,15 @@ GAMES = {
         "Build/data-astc.unityweb": (BASE_TR + "/astc_34010f8eca9bb9457eada2bdf4e595ba.data.br", b"UnityWebData1.0\0"),
         "Build/wasm.wasm":          (BASE_TR + "/45549e91792524a5c448dfd4d9a940eb.wasm.br", b"\x00asm"),
         "Build/framework.js":       (BASE_TR + "/426b65e576b84554a7f883ca826cc3a7.framework.js.br", b"unityFramework"),
+        # FMOD audio banks (referenced by the game at startup; live OUTSIDE the
+        # data archive in StreamingAssets/). Missing them = BankLoadException
+        # and the game freezes on its logo.
+        "StreamingAssets/Master.bank":        ("https://files.crazygames.com/traffic-rider-vvq/92/StreamingAssets/Master.bank", b"FEV "),
+        "StreamingAssets/Master.strings.bank": ("https://files.crazygames.com/traffic-rider-vvq/92/StreamingAssets/Master.strings.bank", b"FEV "),
+        # Dedicated FMOD bank for the Nitro bike (loaded when that bike spawns).
+        "StreamingAssets/MBK_Nitro2.bank":    ("https://files.crazygames.com/traffic-rider-vvq/92/StreamingAssets/MBK_Nitro2.bank", b"FEV "),
+        # Unity AssetBundle loaded at startup (the "Nitro" bike model).
+        "StreamingAssets/AssetBundles/mbk_nitro": ("https://files.crazygames.com/traffic-rider-vvq/92/StreamingAssets/AssetBundles/mbk_nitro", b"UnityFS"),
     },
 }
 
@@ -166,6 +177,27 @@ def normalize(raw, magic):
     return None, "unexpected content (neither plain nor gzip/brotli of what we need)"
 
 
+def download(url, attempts=6):
+    """Fetch a URL as plain bytes. The CDN is flaky: the same URL can 404 on
+    one request and 200 on the next, so retry with a short backoff."""
+    last = None
+    for i in range(attempts):
+        req = urllib.request.Request(url, headers={
+            "Accept-Encoding": "identity",  # ask for no transfer encoding
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) railway-docker-build",
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=600) as r:
+                return r.read()
+        except Exception as e:
+            last = e
+            wait = 3 * (i + 1)
+            print(f"  retry {i + 1}/{attempts} for {url} ({e}) — sleeping {wait}s",
+                  file=sys.stderr)
+            time.sleep(wait)
+    raise RuntimeError(f"download failed after {attempts} attempts: {last}")
+
+
 def main():
     ok = True
     for slug, files in GAMES.items():
@@ -173,13 +205,8 @@ def main():
         for rel, (url, magic) in files.items():
             dest = f"games/{slug}/{rel}"
             os.makedirs(os.path.dirname(dest), exist_ok=True)
-            req = urllib.request.Request(url, headers={
-                "Accept-Encoding": "identity",  # ask for no transfer encoding
-                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) railway-docker-build",
-            })
             try:
-                with urllib.request.urlopen(req, timeout=600) as r:
-                    raw = r.read()
+                raw = download(url)
             except Exception as e:
                 print(f"FAIL {dest}: download error: {e}", file=sys.stderr)
                 ok = False

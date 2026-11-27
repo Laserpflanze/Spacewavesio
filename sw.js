@@ -65,7 +65,9 @@ self.addEventListener('fetch', function (e) {
   }
 
   // Game assets: cache-first; on first play download once and store.
-  if (url.pathname.indexOf('/Build/') !== -1) {
+  // /StreamingAssets/ = FMOD audio banks (Traffic Rider needs them offline too).
+  if (url.pathname.indexOf('/Build/') !== -1 ||
+      url.pathname.indexOf('/StreamingAssets/') !== -1) {
     e.respondWith(
       caches.match(e.request, { ignoreSearch: true }).then(function (hit) {
         if (hit) return hit;

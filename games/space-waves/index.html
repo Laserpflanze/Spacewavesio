@@ -26,17 +26,29 @@
     })();
   </script>
   <style>
-    html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #13141E; overflow: hidden; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
     #wrap { position: relative; width: 100%; height: 100%; }
     canvas { width: 100%; height: 100%; display: block; outline: none; }
-    #loader { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center;
-              color: #F9FAFF; font-family: Arial, Helvetica, sans-serif; font-size: 14px; gap: 18px;
-              background: linear-gradient(180deg, #090C15 0%, #16143C 50%, #452A65 100%); z-index: 2; }
-    #bar { width: 40%; height: 6px; background: #2a2b3d; border-radius: 3px; overflow: hidden; }
-    #fill { width: 0%; height: 100%; background: #6842ff; transition: width .2s; }
-    #err { color: #ff8080; white-space: pre-wrap; max-width: 80%; text-align: center; }
-    #swbadge { color: #9dffc4; font-size: 13px; min-height: 16px; }
-    #reset { color: #7f8296; font-size: 12px; text-decoration: underline; cursor: pointer; }
+    /* Loader — same black/white minimal style as the arcade hub */
+    #loader { position: absolute; inset: 0; z-index: 2; background: #000; color: #fff;
+              display: flex; flex-direction: column; -webkit-font-smoothing: antialiased;
+              font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,Helvetica,Arial,sans-serif; }
+    .l-top { display: flex; justify-content: space-between; align-items: center; padding: 26px 28px 0; }
+    .l-back { color: #8a8a8a; text-decoration: none; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; }
+    .l-back:hover { color: #fff; }
+    .l-eyebrow { color: #8a8a8a; font-size: 11px; letter-spacing: .4em; text-transform: uppercase; }
+    .l-center { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center;
+                text-align: center; padding: 0 24px calc(50% - 50vh); }
+    .l-pre { color: #8a8a8a; font-size: 11px; letter-spacing: .4em; text-transform: uppercase; }
+    .l-title { font-size: 40px; font-weight: 700; letter-spacing: .01em; margin: 14px 0 0; }
+    .l-tag { color: #8a8a8a; font-size: 10px; letter-spacing: .3em; text-transform: uppercase; margin: 12px 0 40px; }
+    #bar { width: min(300px, 64%); height: 2px; background: #1c1c1c; overflow: hidden; }
+    #fill { width: 0%; height: 100%; background: #fff; transition: width .2s; }
+    #pct { margin-top: 20px; font-size: 11px; letter-spacing: .3em; text-transform: uppercase; color: #8a8a8a; min-height: 14px; }
+    #err { color: #fff; white-space: pre-wrap; max-width: 80%; text-align: center; font-size: 13px; line-height: 1.6; margin-top: 18px; }
+    #swbadge { margin-top: 30px; font-size: 10px; letter-spacing: .24em; text-transform: uppercase; color: #4a4a4a; min-height: 13px; }
+    #reset { margin-top: 14px; color: #8a8a8a; font-size: 11px; letter-spacing: .1em; text-decoration: underline; cursor: pointer; }
+    #reset:hover { color: #fff; }
     /* never show the SDK's local-mode fake ad overlay, whatever happens */
     #local-overlay { display: none !important; }
   </style>
@@ -45,12 +57,20 @@
   <div id="wrap">
     <canvas id="canvas" tabindex="0"></canvas>
     <div id="loader">
-      <div>Space Waves — standalone</div>
-      <div id="bar"><div id="fill"></div></div>
-      <div id="pct">Downloading… 0%</div>
-      <div id="swbadge"></div>
-      <div id="err"></div>
-      <div id="reset">Stuck? Reset game files &amp; cache</div>
+      <div class="l-top">
+        <a class="l-back" href="/">&larr; Arcade</a>
+        <span class="l-eyebrow">Private Collection</span>
+      </div>
+      <div class="l-center">
+        <div class="l-pre">Now Loading</div>
+        <div class="l-title">Space Waves</div>
+        <div class="l-tag">Endless Wave Runner</div>
+        <div id="bar"><div id="fill"></div></div>
+        <div id="pct">Downloading… 0%</div>
+        <div id="swbadge"></div>
+        <div id="err"></div>
+        <div id="reset">Stuck? Reset game files &amp; cache</div>
+      </div>
     </div>
   </div>
 
@@ -83,6 +103,34 @@
       } catch (e) { console.warn('[sitelock] patch failed', e); }
     })();
 
+    // ---- Undo the SiteLock patch for network requests ------------------------
+    // Same trick as Traffic Rider: Unity derives file URLs from document.URL,
+    // so redirect any http://localhost/... fetch back to our real origin.
+    (function () {
+      try {
+        var FAKE = 'http://localhost/';
+        var realFetch = window.fetch;
+        window.fetch = function (input, init) {
+          try {
+            if (typeof input === 'string' && input.indexOf(FAKE) === 0) {
+              input = location.origin + '/' + input.slice(FAKE.length);
+            }
+          } catch (e) {}
+          return realFetch.call(window, input, init);
+        };
+        var realOpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function () {
+          var args = Array.prototype.slice.call(arguments);
+          try {
+            if (typeof args[1] === 'string' && args[1].indexOf(FAKE) === 0) {
+              args[1] = location.origin + '/' + args[1].slice(FAKE.length);
+            }
+          } catch (e) {}
+          return realOpen.apply(this, args);
+        };
+      } catch (e) { console.warn('[localhost rewrite] patch failed', e); }
+    })();
+
     // ---- Unity loader -------------------------------------------------------
     var script = document.createElement('script');
     script.src = 'Build/loader.js';
@@ -91,7 +139,7 @@
         dataUrl: 'Build/data.unityweb',
         codeUrl: 'Build/wasm.wasm',
         frameworkUrl: 'Build/framework.js',
-        streamingAssetsUrl: 'StreamingAssets',
+        streamingAssetsUrl: location.origin + '/games/space-waves/StreamingAssets',
         matchWebGLToCanvasSize: true
       }, function (progress) {
         var p = Math.round(progress * 100);
