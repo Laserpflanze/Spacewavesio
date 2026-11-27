@@ -3,7 +3,7 @@
    at runtime, as the game itself downloads them — so nothing is ever
    downloaded twice and the tab never janks from a giant parallel pre-cache.
    Cache-first afterwards: the game boots from cache even offline. */
-var CACHE = 'space-waves-v7';
+var CACHE = 'space-waves-v8';
 var SHELL = ['./', './index.html', './manifest.webmanifest'];
 
 self.addEventListener('install', function (e) {
