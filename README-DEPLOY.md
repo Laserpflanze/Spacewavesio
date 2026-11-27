@@ -18,7 +18,7 @@ progress with **zero network access**.
 
 ```
 index.html                        ← loader (black/white dark mode)
-sw.js                             ← service worker (v9): caches everything
+sw.js                             ← service worker (v10): caches everything
 manifest.webmanifest
 server.py                         ← static server, correct MIME + cache headers
 Dockerfile                        ← runs fetch_build.py at Railway build time

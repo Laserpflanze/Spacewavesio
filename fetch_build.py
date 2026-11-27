@@ -86,9 +86,18 @@ SDK_STUB_NEW = (
     b'user:{isUserAccountAvailable:false,'
     b'getUser:function(){return P({username:"Player",userId:"local-player",avatarUrl:""})},'
     b'getUserToken:function(){return P("")},getXsollaUserToken:function(){return P("")},'
-    b'systemInfo:{browser:{name:"browser",version:"1"},Browser:{name:"browser",version:"1"},'
-    b'os:{name:"os",version:"1"},Os:{name:"os",version:"1"},'
-    b'deviceType:"desktop",DeviceType:"desktop"},'
+    # REAL SDK v3 systemInfo shape (verified against sdk.crazygames.com
+    # crazygames-sdk-v3.js demo mode): device type lives at
+    # systemInfo.device.type — a nested object. The earlier flat
+    # `deviceType:"desktop"` key was IGNORED by the game's C# SDK, so
+    # CrazySDK.User.SystemInfo.DeviceType parsed empty and Traffic Rider
+    # fell back to its own touch detection -> mobile mode (touch controls,
+    # keyboard dead) on iPads. `device:{type:"desktop"}` forces desktop mode.
+    b'systemInfo:{browser:{name:"browser",version:"1"},'
+    b'countryCode:"US",locale:"en-US",'
+    b'os:{name:"os",version:"1"},'
+    b'device:{type:"desktop"},'
+    b'applicationType:"web"},'
     b'submitScore:function(){return P()},addScore:function(){return P()},'
     b'addAuthListener:noop,showAuthPrompt:function(){return P(false)},'
     b'showAccountLinkPrompt:function(){return P(false)},listFriends:function(){return P([])}},'

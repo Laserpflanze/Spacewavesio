@@ -3,7 +3,7 @@
    cached at runtime, as each game itself downloads them — so nothing is ever
    downloaded twice and the tab never janks from a giant parallel pre-cache.
    Cache-first afterwards: every game boots from cache even offline. */
-var CACHE = 'space-waves-v9';
+var CACHE = 'space-waves-v10';
 var SHELL = [
   './',
   './index.html',
