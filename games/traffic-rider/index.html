@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Traffic Rider — Offline Arcade</title>
+  <script>
+    // Never load the CrazyGames SDK from the CDN — the patched framework.js
+    // already contains a full local stub, so the game needs zero network.
+    (function () {
+      try {
+        var d = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+        Object.defineProperty(HTMLScriptElement.prototype, 'src', {
+          get: d.get,
+          set: function (v) {
+            try {
+              if (typeof v === 'string' && v.indexOf('sdk.crazygames.com') !== -1) {
+                return; // block
+              }
+            } catch (e) {}
+            d.set.call(this, v);
+          },
+          configurable: true
+        });
+      } catch (e) {}
+    })();
+  </script>
+  <style>
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #0b0d10; overflow: hidden; }
+    #wrap { position: relative; width: 100%; height: 100%; }
+    canvas { width: 100%; height: 100%; display: block; outline: none; }
+    #loader { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center;
+              color: #F5F6F8; font-family: Arial, Helvetica, sans-serif; font-size: 14px; gap: 18px;
+              background: linear-gradient(180deg, #0b0d10 0%, #10151c 50%, #1b2430 100%); z-index: 2; }
+    #bar { width: 40%; height: 6px; background: #262b33; border-radius: 3px; overflow: hidden; }
+    #fill { width: 0%; height: 100%; background: #e8e8e8; transition: width .2s; }
+    #err { color: #ff8080; white-space: pre-wrap; max-width: 80%; text-align: center; }
+    #swbadge { color: #9dffc4; font-size: 13px; min-height: 16px; }
+    #reset { color: #7f8296; font-size: 12px; text-decoration: underline; cursor: pointer; }
+    /* never show the SDK's local-mode fake ad overlay, whatever happens */
+    #local-overlay { display: none !important; }
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="canvas" tabindex="0"></canvas>
+    <div id="loader">
+      <div>Traffic Rider — standalone</div>
+      <div id="bar"><div id="fill"></div></div>
+      <div id="pct">Downloading… 0%</div>
+      <div id="swbadge"></div>
+      <div id="err"></div>
+      <div id="reset">Stuck? Reset game files &amp; cache</div>
+    </div>
+  </div>
+
+  <script>
+    // ---- Cap render resolution on very dense screens -----------------------
+    (function () {
+      try {
+        var real = window.devicePixelRatio || 1;
+        var capped = Math.min(real, 2);
+        if (capped !== real) {
+          Object.defineProperty(window, 'devicePixelRatio', {
+            get: function () { return capped; }, configurable: true
+          });
+        }
+      } catch (e) {}
+    })();
+
+    // ---- SiteLock bypass ----------------------------------------------------
+    (function () {
+      try {
+        Object.defineProperty(document, 'URL', {
+          get: function () { return 'http://localhost/'; },
+          configurable: true
+        });
+      } catch (e) { console.warn('[sitelock] patch failed', e); }
+    })();
+
+    // ---- Texture variant selection -----------------------------------------
+    // CrazyGames ships two data files: a desktop texture set and an ASTC
+    // compressed set for mobile GPUs (which cannot decode the desktop one).
+    // Pick the same way the official page does — by WebGL extension support.
+    function supportsAstc() {
+      try {
+        var c = document.createElement('canvas');
+        var gl = c.getContext('webgl2') || c.getContext('webgl') || c.getContext('experimental-webgl');
+        return !!(gl && gl.getExtension('WEBGL_compressed_texture_astc'));
+      } catch (e) { return false; }
+    }
+
+    // ---- Unity loader -------------------------------------------------------
+    var script = document.createElement('script');
+    script.src = 'Build/loader.js';
+    script.onload = function () {
+      var astc = supportsAstc();
+      console.log('[traffic-rider] ASTC texture variant:', astc);
+      createUnityInstance(document.getElementById('canvas'), {
+        dataUrl: astc ? 'Build/data-astc.unityweb' : 'Build/data.unityweb',
+        codeUrl: 'Build/wasm.wasm',
+        frameworkUrl: 'Build/framework.js',
+        streamingAssetsUrl: 'StreamingAssets',
+        matchWebGLToCanvasSize: true
+      }, function (progress) {
+        var p = Math.round(progress * 100);
+        document.getElementById('fill').style.width = p + '%';
+        document.getElementById('pct').textContent = p >= 90
+          ? 'Starting game… (first boot can take a while)'
+          : 'Downloading… ' + p + '%';
+      }).then(function () {
+        var l = document.getElementById('loader');
+        if (l) l.remove();
+        document.getElementById('canvas').focus();
+      }).catch(function (e) {
+        document.getElementById('pct').textContent = '';
+        document.getElementById('err').textContent = 'Failed to start: ' + (e && e.message ? e.message : e);
+      });
+    };
+    document.head.appendChild(script);
+
+    // ---- Offline cache (service worker at the site root) --------------------
+    var badge = document.getElementById('swbadge');
+    function setBadge(t) { if (badge) badge.textContent = t; }
+    function checkOfflineReady() {
+      if (!('caches' in window)) return;
+      caches.match('Build/wasm.wasm', { ignoreSearch: true }).then(function (hit) {
+        if (hit) setBadge('Offline-ready: all files cached');
+        else setTimeout(checkOfflineReady, 4000);
+      }).catch(function () { setTimeout(checkOfflineReady, 4000); });
+    }
+    if ('serviceWorker' in navigator) {
+      var __reloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (__reloaded) return;
+        __reloaded = true;
+        if (navigator.serviceWorker.controller) location.reload();
+      });
+      navigator.serviceWorker.register('/sw.js').then(function (reg) {
+        if (navigator.serviceWorker.controller) checkOfflineReady();
+        reg.addEventListener('updatefound', function () {
+          var sw = reg.installing;
+          if (!sw) return;
+          sw.addEventListener('statechange', function () {
+            if (sw.state === 'activated') checkOfflineReady();
+          });
+        });
+      }).catch(function (e) { console.warn('[SW] registration failed:', e); });
+    }
+
+    // ---- Emergency reset ----------------------------------------------------
+    document.getElementById('reset').addEventListener('click', function () {
+      setBadge('Resetting caches…');
+      try {
+        if ('caches' in window) {
+          caches.keys().then(function (keys) {
+            keys.forEach(function (k) {
+              if (k.indexOf('space-waves') === 0 || k.indexOf('offline-arcade') === 0) caches.delete(k);
+            });
+          });
+        }
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function (regs) {
+            regs.forEach(function (r) { r.unregister(); });
+          });
+        }
+        if (window.indexedDB) {
+          if (indexedDB.databases) {
+            indexedDB.databases().then(function (dbs) {
+              dbs.forEach(function (d) {
+                if (d.name && d.name.indexOf('UnityCache') === 0) indexedDB.deleteDatabase(d.name);
+              });
+            }).catch(function () {
+              try { indexedDB.deleteDatabase('UnityCache_Unity_WebGL Player'); } catch (e) {}
+            });
+          } else {
+            try { indexedDB.deleteDatabase('UnityCache_Unity_WebGL Player'); } catch (e) {}
+          }
+        }
+        setTimeout(function () { location.href = '/'; }, 1200);
+      } catch (e) { location.href = '/'; }
+    });
+
+    // ---- Kill any fake "ad" popup the local SDK mode could show -------------
+    (function () {
+      var attempts = 0;
+      (function tryPatch() {
+        attempts++;
+        try {
+          var sdk = (window.CrazyGames && window.CrazyGames.SDK) ||
+                    (window.Crazygames && window.Crazygames.SDK) || null;
+          if (sdk && sdk.ad && typeof sdk.ad.requestAd === 'function' && !sdk.ad.__noAds) {
+            sdk.ad.requestAd = function (type, callbacks) {
+              callbacks = callbacks || {};
+              setTimeout(function () {
+                try { if (callbacks.adStarted) callbacks.adStarted(); } catch (e) {}
+                try { if (callbacks.adFinished) callbacks.adFinished(); } catch (e) {}
+              }, 0);
+              return Promise.resolve();
+            };
+            sdk.ad.__noAds = true;
+            try {
+              var ov = sdk.ad.overlay;
+              if (ov && ov.parentElement) ov.parentElement.removeChild(ov);
+            } catch (e) {}
+          }
+        } catch (e) {}
+        if (attempts < 600) setTimeout(tryPatch, 100);
+      })();
+    })();
+  </script>
+</body>
+</html>

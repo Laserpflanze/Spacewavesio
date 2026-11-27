@@ -1,10 +1,16 @@
-/* Space Waves offline service worker.
-   The shell is precached at install; the big game files (~60 MB) are cached
-   at runtime, as the game itself downloads them — so nothing is ever
+/* Offline Arcade — service worker.
+   The shell is precached at install; the big game files (~160 MB total) are
+   cached at runtime, as each game itself downloads them — so nothing is ever
    downloaded twice and the tab never janks from a giant parallel pre-cache.
-   Cache-first afterwards: the game boots from cache even offline. */
-var CACHE = 'space-waves-v8';
-var SHELL = ['./', './index.html', './manifest.webmanifest'];
+   Cache-first afterwards: every game boots from cache even offline. */
+var CACHE = 'space-waves-v9';
+var SHELL = [
+  './',
+  './index.html',
+  './manifest.webmanifest',
+  './games/space-waves/index.html',
+  './games/traffic-rider/index.html'
+];
 
 self.addEventListener('install', function (e) {
   self.skipWaiting();
@@ -40,8 +46,8 @@ self.addEventListener('fetch', function (e) {
                 url.pathname.endsWith('/sw.js') ||
                 url.pathname.endsWith('/manifest.webmanifest');
 
-  // Shell (index/sw/manifest): network-first so updates always propagate,
-  // falling back to cache when offline.
+  // Shell (loader pages, game wrapper pages, manifest): network-first so
+  // updates always propagate, falling back to cache when offline.
   if (isShell) {
     e.respondWith(
       fetch(e.request).then(function (resp) {
@@ -58,7 +64,7 @@ self.addEventListener('fetch', function (e) {
     return;
   }
 
-  // Game assets: cache-first; on first visit download once and store.
+  // Game assets: cache-first; on first play download once and store.
   if (url.pathname.indexOf('/Build/') !== -1) {
     e.respondWith(
       caches.match(e.request, { ignoreSearch: true }).then(function (hit) {

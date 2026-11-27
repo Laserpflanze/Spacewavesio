@@ -1,16 +1,16 @@
 {
-  "name": "Space Waves",
-  "short_name": "Space Waves",
-  "description": "Space Waves — standalone offline build",
+  "name": "Offline Arcade",
+  "short_name": "Arcade",
+  "description": "Offline arcade — Space Waves & Traffic Rider, no ads, no network needed",
   "start_url": "./index.html",
   "scope": "./",
   "display": "fullscreen",
   "orientation": "landscape",
-  "background_color": "#13141E",
-  "theme_color": "#13141E",
+  "background_color": "#000000",
+  "theme_color": "#000000",
   "icons": [
     {
-      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2316143C'/%3E%3Cpath d='M4 40 Q16 20 32 32 T60 28' stroke='%236842ff' stroke-width='5' fill='none'/%3E%3Ccircle cx='32' cy='32' r='6' fill='%23F9FAFF'/%3E%3C/svg%3E",
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23000000'/%3E%3Crect x='8' y='26' width='48' height='14' rx='7' fill='none' stroke='%23ffffff' stroke-width='3'/%3E%3Ccircle cx='20' cy='33' r='3' fill='%23ffffff'/%3E%3Ccircle cx='44' cy='33' r='3' fill='%23ffffff'/%3E%3C/svg%3E",
       "sizes": "any",
       "type": "image/svg+xml"
     }

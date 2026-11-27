@@ -26,9 +26,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         # only matters when the SW cache was wiped. Never mark Build files
         # immutable: after a redeploy the SW must re-download updated files.
         path = self.path.lower()
-        if path.startswith("/build/"):
+        if "/build/" in path:
             self.send_header("Cache-Control", "public, max-age=0, must-revalidate")
-        elif path.startswith("/sw.js") or path.startswith("/index.html") or path == "/":
+        elif path.endswith("/sw.js") or path.endswith("/index.html") or path == "/":
             self.send_header("Cache-Control", "no-cache")
         super().end_headers()
 

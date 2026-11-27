@@ -1,15 +1,19 @@
-"""Docker build step: fetch the Unity WebGL build files from the CrazyGames CDN.
+"""Docker build step: fetch the Unity WebGL build files for every game from
+the CrazyGames CDN.
 
 The CDN behaves inconsistently depending on which edge server answers the
 request: the exact same URL can return the raw uncompressed content OR
 brotli/gzip-compressed bytes. Serving compressed bytes as-is breaks the game
-(the browser parses them as JS/data and fails, e.g. "Invalid character
-'\\ufffd'" or "still brotli-compressed" errors).
+(the browser parses them as JS/data and fails).
 
 This script normalizes every download to the plain uncompressed file the
-Unity loader expects (byte-for-byte identical to the locally verified build),
-verifies the magic bytes of each file, and fails the Docker build loudly if
-anything still looks wrong.
+Unity loader expects (verified via magic bytes), patches each framework.js so
+no external CrazyGames SDK is ever loaded (fully offline capable), and fails
+the Docker build loudly if anything still looks wrong.
+
+Adding a new game: append an entry to GAMES below with its build file URLs
+(from the game's crazygames.com page source) and create
+games/<slug>/index.html (copy an existing wrapper and adjust).
 """
 import gzip
 import os
@@ -17,23 +21,31 @@ import subprocess
 import sys
 import urllib.request
 
-BASE = "https://files.crazygames.com/space-waves/114/Build"
-FILES = {
-    "Build/loader.js": (BASE + "/f5621fc8e6401e7302a362d609e496a1.loader.js",
-                        b"createUnityInstance"),
-    "Build/data.unityweb": (BASE + "/1a568795816f05437ab0d4e6f50dc4ac.data.br",
-                            b"UnityWebData1.0\0"),
-    "Build/wasm.wasm": (BASE + "/c1aca0022182358dc43860f4ad8c934f.wasm.br",
-                        b"\x00asm"),
-    "Build/framework.js": (BASE + "/285f771aa266df412210c567c3f51a97.framework.js.br",
-                           b"unityFramework"),
+BASE_SW = "https://files.crazygames.com/space-waves/114/Build"
+BASE_TR = "https://files.crazygames.com/traffic-rider-vvq/92/Build"
+
+# slug -> {relative path: (CDN url, magic bytes)}
+GAMES = {
+    "space-waves": {
+        "Build/loader.js":    (BASE_SW + "/f5621fc8e6401e7302a362d609e496a1.loader.js", b"createUnityInstance"),
+        "Build/data.unityweb": (BASE_SW + "/1a568795816f05437ab0d4e6f50dc4ac.data.br", b"UnityWebData1.0\0"),
+        "Build/wasm.wasm":    (BASE_SW + "/c1aca0022182358dc43860f4ad8c934f.wasm.br", b"\x00asm"),
+        "Build/framework.js": (BASE_SW + "/285f771aa266df412210c567c3f51a97.framework.js.br", b"unityFramework"),
+    },
+    "traffic-rider": {
+        "Build/loader.js":          (BASE_TR + "/cba27609590673cc3e95d6eb17d640a8.loader.js", b"createUnityInstance"),
+        "Build/data.unityweb":      (BASE_TR + "/6834d2611f2acc43ab198a14e50d3950.data.br", b"UnityWebData1.0\0"),
+        "Build/data-astc.unityweb": (BASE_TR + "/astc_34010f8eca9bb9457eada2bdf4e595ba.data.br", b"UnityWebData1.0\0"),
+        "Build/wasm.wasm":          (BASE_TR + "/45549e91792524a5c448dfd4d9a940eb.wasm.br", b"\x00asm"),
+        "Build/framework.js":       (BASE_TR + "/426b65e576b84554a7f883ca826cc3a7.framework.js.br", b"unityFramework"),
+    },
 }
 
 # Marker string the Unity loader itself uses to detect its brotli wrapper
 # (see hasUnityMarker in loader.js).
 UNITY_BROTLI_MARKER = b"UnityWeb Compressed Content"
 
-# The game's bundled glue normally loads the CrazyGames SDK from their CDN at
+# The games' bundled glue normally loads the CrazyGames SDK from their CDN at
 # runtime. Offline that script never arrives -> JSLibCallback_Init never fires
 # -> the game hangs forever; online on our own domain it runs in "disabled"
 # mode (sdkDisabled errors). We patch framework.js right after download so no
@@ -89,9 +101,13 @@ def patch_framework(path):
     if b"sdk.crazygames.com" not in data and b"window.CrazyGames.SDK=sdk" in data:
         print(f"OK   {path}: SDK stub already applied")
         return
-    if data.count(SDK_LOADER_OLD) != 1:
-        sys.exit(f"FAIL {path}: SDK loader pattern not found exactly once "
-                 f"({data.count(SDK_LOADER_OLD)}) — build file changed upstream?")
+    n = data.count(SDK_LOADER_OLD)
+    if n == 0:
+        print(f"WARN {path}: no CrazyGames SDK loader found — left unpatched "
+              "(game may not use the SDK).", file=sys.stderr)
+        return
+    if n != 1:
+        sys.exit(f"FAIL {path}: SDK loader pattern found {n} times — refusing blind replace")
     patched = data.replace(SDK_LOADER_OLD, SDK_STUB_NEW, 1)
     if b"sdk.crazygames.com" in patched or b"unityFramework" not in patched:
         sys.exit(f"FAIL {path}: SDK patch produced unexpected content")
@@ -151,35 +167,39 @@ def normalize(raw, magic):
 
 
 def main():
-    os.makedirs("Build", exist_ok=True)
     ok = True
-    for dest, (url, magic) in FILES.items():
-        req = urllib.request.Request(url, headers={
-            "Accept-Encoding": "identity",  # ask for no transfer encoding
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) railway-docker-build",
-        })
-        try:
-            with urllib.request.urlopen(req, timeout=600) as r:
-                raw = r.read()
-        except Exception as e:
-            print(f"FAIL {dest}: download error: {e}", file=sys.stderr)
-            ok = False
-            continue
+    for slug, files in GAMES.items():
+        os.makedirs(f"games/{slug}", exist_ok=True)
+        for rel, (url, magic) in files.items():
+            dest = f"games/{slug}/{rel}"
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            req = urllib.request.Request(url, headers={
+                "Accept-Encoding": "identity",  # ask for no transfer encoding
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) railway-docker-build",
+            })
+            try:
+                with urllib.request.urlopen(req, timeout=600) as r:
+                    raw = r.read()
+            except Exception as e:
+                print(f"FAIL {dest}: download error: {e}", file=sys.stderr)
+                ok = False
+                continue
 
-        data, how = normalize(raw, magic)
-        if data is None:
-            print(f"FAIL {dest}: {how}, first bytes: {raw[:24]!r}", file=sys.stderr)
-            ok = False
-            continue
+            data, how = normalize(raw, magic)
+            if data is None:
+                print(f"FAIL {dest}: {how}, first bytes: {raw[:24]!r}", file=sys.stderr)
+                ok = False
+                continue
 
-        with open(dest, "wb") as f:
-            f.write(data)
-        print(f"OK   {dest}: {len(data):,} bytes ({how})")
+            with open(dest, "wb") as f:
+                f.write(data)
+            print(f"OK   {dest}: {len(data):,} bytes ({how})")
+
+        patch_framework(f"games/{slug}/Build/framework.js")
 
     if not ok:
         sys.exit("Build aborted: one or more game files are corrupt.")
 
-    patch_framework("Build/framework.js")
     print("All game files fetched, verified and patched (no external SDK needed).")
 
 

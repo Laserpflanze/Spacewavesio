@@ -1,52 +1,57 @@
-# Space Waves — phone-friendly Railway deploy kit
+# Offline Arcade — phone-friendly Railway game loader
 
-This folder contains only SMALL files (< 25 MB each), so you can upload every one
-of them to GitHub directly from your phone's browser. The Unity build files
-(~60 MB) are downloaded automatically by Docker during the Railway build.
+A private, offline-capable mini arcade: one dark-mode loader page, multiple
+games, zero ads, zero CrazyGames SDK network calls. Currently includes:
 
-## Files to upload to your GitHub repo
+- **Space Waves** (build 114)
+- **Traffic Rider** (build 92)
 
-Upload ALL of these (keep the names exactly):
+## How it works
 
-- `Dockerfile`
-- `fetch_build.py`
-- `server.py`
-- `index.html`
-- `sw.js`
-- `manifest.webmanifest`
+The folder contains only SMALL files (< 25 MB each), so you can upload every
+one of them to GitHub directly from your phone's browser. The Unity build
+files (~160 MB total) are downloaded automatically by Docker during the
+Railway build, normalized (the CDN sometimes serves brotli/gzip bytes),
+verified via magic bytes, and patched: the CrazyGames SDK loader inside each
+`framework.js` is replaced with a complete local stub, so games boot and save
+progress with **zero network access**.
 
-That's it. 6 files, none bigger than 8 KB.
+```
+index.html                        ← loader (black/white dark mode)
+sw.js                             ← service worker (v9): caches everything
+manifest.webmanifest
+server.py                         ← static server, correct MIME + cache headers
+Dockerfile                        ← runs fetch_build.py at Railway build time
+fetch_build.py                    ← downloads + verifies + patches all games
+games/space-waves/index.html      ← game wrapper (SDK stub, DPR cap, no ads)
+games/traffic-rider/index.html    ← game wrapper (ASTC texture auto-select)
+```
 
-## Steps from your phone
+## Deploy steps from your phone
 
-1. **Create the repo:** github.com → + (top right) → New repository →
-   name it (e.g. `space-waves`), set it to **Private** → Create.
-2. **Upload:** "uploading an existing file" link (or Add file → Upload files) →
-   select the 5 files → Commit changes. All are tiny, so the 25 MB web limit
-   is no problem.
-3. **Railway:** railway.com → sign in with GitHub → New Project →
-   "Deploy from GitHub repo" → pick your repo → Deploy.
-   Railway sees the `Dockerfile`, builds it (downloads the game files itself,
-   takes ~1 min), and starts the server on `$PORT`.
-4. **Open your game:** in the service settings → Networking → "Generate Domain"
-   → open the URL. First load caches everything (service worker); after that
-   it boots fast even on bad mobile internet.
+1. **GitHub:** open your existing repo → Add file → Upload files →
+   replace `index.html`, `sw.js`, `server.py`, `fetch_build.py`,
+   `manifest.webmanifest` and add the two new `games/*/index.html`
+   (create the folders when uploading: name the file
+   `games/space-waves/index.html` — GitHub web accepts paths in the
+   filename box). Commit → Railway redeploys automatically.
+2. **Railway:** build takes a few minutes (downloads the game files).
+3. **First run per game:** open the loader, tap the game once ON WIFI —
+   the service worker caches its files as it downloads them.
+4. **After that:** fully offline. School wifi? Airplane mode? Doesn't matter.
 
 ## Notes
 
-- Keep the Railway URL **private** — it's the developer's game, don't share it.
-- If the build fails with a download error, the CrazyGames CDN URL for build 114
-  may have changed — update the 4 URLs inside `fetch_build.py` (they come from
-  the game's "game files" page source).
-- The CDN sometimes serves brotli/gzip-compressed bytes depending on which of
-  its edge servers answers. `fetch_build.py` detects and decompresses that
-  automatically and verifies each file, so the game always gets plain,
-  verified content.
-- `fetch_build.py` also **patches framework.js**: the game normally loads the
-  CrazyGames SDK from their CDN at runtime — offline that script never arrives
-  and the game hangs forever, and online on a custom domain the SDK refuses to
-  run ("sdkDisabled"). The patch replaces the CDN loader with a complete local
-  stub SDK, so the game needs **zero network access for the SDK**: it boots and
-  plays fully offline, online, anywhere. No ads either way.
-- Everything else (fullscreen, no ads, offline cache) behaves exactly like the
-  local version.
+- Keep the Railway URL **private** — personal use only, don't share it.
+- "Not cached" on the loader = that game hasn't had its first online run yet.
+- Traffic Rider auto-picks the ASTC texture set on mobile GPUs (iPads) and
+  the desktop set elsewhere — both files are cached separately, and only the
+  one your device uses is ever downloaded.
+- "Reset cache" (footer of the loader, or the link inside each game) wipes
+  all cached files and re-downloads on the next run.
+- **Adding another game:** find it on crazygames.com, view the page source
+  for its `files.crazygames.com/.../Build/...` URLs, append an entry in
+  `fetch_build.py` (GAMES dict), copy any `games/*/index.html` wrapper and
+  adjust the build file names, add the new game row + status check to the
+  loader, and bump the CACHE version in `sw.js`. Then upload the changed
+  files.
