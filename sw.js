@@ -3,7 +3,7 @@
    cached at runtime, as each game itself downloads them — so nothing is ever
    downloaded twice and the tab never janks from a giant parallel pre-cache.
    Cache-first afterwards: every game boots from cache even offline. */
-var CACHE = 'space-waves-v12';
+var CACHE = 'space-waves-v13';
 var SHELL = [
   './',
   './index.html',
@@ -44,8 +44,30 @@ var SHELL = [
   './games/traffic-rider/StreamingAssets/AssetBundles/suzuki_hayabusa',
   './games/traffic-rider/StreamingAssets/AssetBundles/vespa_946',
   './games/traffic-rider/StreamingAssets/AssetBundles/vyrus_alyen',
-  './games/traffic-rider/StreamingAssets/AssetBundles/yamaha_vmax'
+  './games/traffic-rider/StreamingAssets/AssetBundles/yamaha_midnight',
+  './games/traffic-rider/StreamingAssets/AssetBundles/yamaha_vmax',
+  /* Per-bike FMOD sound banks: loaded at RIDE START for bikes that define
+     one — a missing bank = infinite loading screen when riding that bike. */
+  './games/traffic-rider/StreamingAssets/Aprilia_RSV4.bank',
+  './games/traffic-rider/StreamingAssets/Bmw_S1000RR.bank',
+  './games/traffic-rider/StreamingAssets/Ducati_1098R.bank',
+  './games/traffic-rider/StreamingAssets/Harley_Davidson.bank',
+  './games/traffic-rider/StreamingAssets/Honda_CB750F.bank',
+  './games/traffic-rider/StreamingAssets/Honda_CBR250R.bank',
+  './games/traffic-rider/StreamingAssets/Honda_Shadow.bank',
+  './games/traffic-rider/StreamingAssets/Kawasaki_1400_GTR.bank',
+  './games/traffic-rider/StreamingAssets/Kawasaki_KLX250.bank',
+  './games/traffic-rider/StreamingAssets/Kawasaki_KX450F.bank',
+  './games/traffic-rider/StreamingAssets/Kawasaki_Z750.bank',
+  './games/traffic-rider/StreamingAssets/Suzuki_Hayabusa_GSX1300R.bank',
+  './games/traffic-rider/StreamingAssets/Vespa_946.bank'
 ];
+
+/* A few bank names in the game's data (Ninja3, ZX10R, 250X) have NO file on
+   the original CDN under any casing. Serving any valid FMOD bank beats the
+   infinite loading screen: the game proceeds and just falls back to a
+   default engine sound for those bikes. */
+var BANK_FALLBACK = './games/traffic-rider/StreamingAssets/Vespa_946.bank';
 
 self.addEventListener('install', function (e) {
   self.skipWaiting();
@@ -111,7 +133,20 @@ self.addEventListener('fetch', function (e) {
             var copy = resp.clone();
             caches.open(CACHE).then(function (c) { c.put(e.request, copy); });
           }
+          // missing per-bike bank -> serve a valid one instead of hanging
+          if ((!resp || !resp.ok) && /\.bank$/.test(url.pathname)) {
+            return caches.match(BANK_FALLBACK).then(function (fb) {
+              if (fb) return fb;
+              return resp;
+            });
+          }
           return resp;
+        }).catch(function () {
+          // offline and not cached: same bank fallback
+          if (/\.bank$/.test(url.pathname)) {
+            return caches.match(BANK_FALLBACK);
+          }
+          throw 0;
         });
       })
     );

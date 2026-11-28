@@ -64,9 +64,9 @@ GAMES = {
 # ...). The garage previews come from the data file, but RIDING one of these
 # bikes fetches StreamingAssets/AssetBundles/<name> at runtime — a missing
 # file = hang on the bike-selection/loading screen.
-# Complete inventory (verified 2026-11-27 by exhaustive probing of 900+
-# candidate names over 4 rounds; no per-bike FMOD banks exist besides
-# MBK_Nitro2 above, and no other scene/model bundles exist).
+# Complete inventory (verified 2026-11-27..28 by exhaustive probing of 1000+
+# candidate names over 8 rounds, plus live network capture of the game's own
+# boot-time prefetches, which exposed yamaha_midnight).
 TR_BIKE_BUNDLES = [
     "aprilia_rsv4", "bmw_k1200s", "bmw_s1000rr", "dodge_tomahawk",
     "ducati_1098r", "ducati_multistrada", "ducati_streetfighter_v4_sp2",
@@ -74,13 +74,34 @@ TR_BIKE_BUNDLES = [
     "honda_cbr_250r", "indian_chieftain", "kawasaki_h2r", "kawasaki_klx250",
     "kawasaki_kx450f", "kawasaki_ninja_zx10r", "kawasaki_z750",
     "kawasaki_zzr1400", "lazareth_lm410", "mv_agusta_f4", "pulsar_rs200",
-    "suzuki_hayabusa", "vespa_946", "vyrus_alyen", "yamaha_vmax",
+    "suzuki_hayabusa", "vespa_946", "vyrus_alyen", "yamaha_midnight",
+    "yamaha_vmax",
 ]
 BASE_TR_ROOT = "https://files.crazygames.com/traffic-rider-vvq/92"  # StreamingAssets live outside /Build
 GAMES["traffic-rider"].update({
     f"StreamingAssets/AssetBundles/{s}": (
         BASE_TR_ROOT + f"/StreamingAssets/AssetBundles/{s}", b"UnityFS")
     for s in TR_BIKE_BUNDLES
+})
+
+# Per-bike FMOD sound banks: at RIDE START the game loads
+# StreamingAssets/<BankName>.bank for bikes that define one (the bank-name
+# table sits in the data file: Aprilia_RSV4, Bmw_S1000RR, ... 16 entries).
+# Missing bank = the FMOD load never completes = infinite "loading" screen
+# when riding the newly bought bike. These are RIFF/FSB5 files, not FEV.
+# Verified complete on 2026-11-28: 3 further table entries (Ninja3, ZX10R,
+# 250X) have NO file on the CDN under any casing — sw.js serves a fallback
+# bank for those so they no longer hang.
+TR_BIKE_BANKS = [
+    "Aprilia_RSV4", "Bmw_S1000RR", "Ducati_1098R", "Harley_Davidson",
+    "Honda_CB750F", "Honda_CBR250R", "Honda_Shadow", "Kawasaki_1400_GTR",
+    "Kawasaki_KLX250", "Kawasaki_KX450F", "Kawasaki_Z750",
+    "Suzuki_Hayabusa_GSX1300R", "Vespa_946",
+]
+GAMES["traffic-rider"].update({
+    f"StreamingAssets/{b}.bank": (
+        BASE_TR_ROOT + f"/StreamingAssets/{b}.bank", b"RIFF")
+    for b in TR_BIKE_BANKS
 })
 
 # Marker string the Unity loader itself uses to detect its brotli wrapper
@@ -245,7 +266,8 @@ def download(url, attempts=6):
 # everything" can only be done by probing every name the game could request.
 # FILES above is the verified complete inventory (2026-11-27, 4 probing
 # rounds / 900+ candidate names): the CDN's StreamingAssets contains exactly
-# the 3 FMOD banks + 27 Unity bundles (menu scene + one per purchasable bike)
+# the 16 FMOD banks (3 general + 13 per-bike) + 28 Unity bundles (menu scene
+# + Nitro + one per licensed bike)
 # listed there — every other candidate probed (per-bike banks, other scene
 # bundles, etc/dxt texture variants) returned 404 on the CDN itself.
 # This list is re-probed at every build: if the developer ever ships a new

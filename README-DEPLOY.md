@@ -18,14 +18,16 @@ progress with **zero network access**.
 
 ```
 index.html                        ← loader (black/white dark mode)
-sw.js                             ← service worker (v12): precaches the shell AND
+sw.js                             ← service worker (v13): precaches the shell AND
                                      ALL Traffic Rider StreamingAssets at install
-                                     (3 FMOD banks + 27 Unity bundles: menu scene
-                                     + every purchasable bike model — without
-                                     menusceneasset the game hangs on a black
-                                     loading screen after the first mission,
-                                     without a bike bundle it hangs when you ride
-                                     that bike)
+                                     (16 FMOD banks incl. 13 per-bike banks + 28
+                                     Unity bundles: menu scene + every purchasable
+                                     bike model). Missing menusceneasset = black
+                                     screen after the first mission; missing a
+                                     bike bundle or the bike's .bank = infinite
+                                     loading when riding it — so .bank requests
+                                     that are missing on the CDN fall back to a
+                                     valid bank instead of hanging
 manifest.webmanifest
 server.py                         ← static server, correct MIME + cache headers
 Dockerfile                        ← runs fetch_build.py at Railway build time
